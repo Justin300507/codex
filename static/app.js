@@ -48,7 +48,7 @@ function App() {
     const t = setInterval(load, 3000);
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        () => setGeo("Confirmed near Vyttila Metro"),
+        (pos) => setGeo(`Current location: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`),
         () => setGeo("Location is display-only")
       );
     }
@@ -128,6 +128,10 @@ function App() {
   }
 
   async function showTimetable() {
+    if (timetable) {
+      setTimetable(null);
+      return;
+    }
     setTimetable(await api("/bus-timetable?station=" + encodeURIComponent(form.origin_station)));
   }
 
@@ -172,7 +176,7 @@ function App() {
           <b>Bus: {stand.name} - {stand.walk_m}m walk</b>
           <small>{stand.routes.join(" - ")}</small>
           <small>{stand.frequency}</small>
-          <button type="button" className="secondary mini" onClick={showTimetable}>Bus timetable</button>
+          <button type="button" className="secondary mini" onClick={showTimetable}>{timetable ? "Hide timetable" : "Bus timetable"}</button>
         </div>)}
         {timetable && <Timetable data={timetable}/>}
         {autoStand && <div className="auto-board"><b>Auto: {autoStand.name} - {autoStand.walk_m}m walk</b><small>Direct last-mile rides are available from this pickup point.</small></div>}
