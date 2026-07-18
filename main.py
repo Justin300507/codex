@@ -35,6 +35,11 @@ STATIONS = {
     "Thrippunithura Terminal": (9.9460, 76.3618),
 }
 
+BUS_STANDS = [
+    {"name": "Vyttila Mobility Hub", "walk_m": 160, "routes": ["Kakkanad", "Fort Kochi", "Aluva"]},
+    {"name": "Vyttila Junction", "walk_m": 240, "routes": ["Tripunithura", "MG Road", "Ernakulam"]},
+]
+
 # Local fallbacks keep destination confirmation usable during API failures.
 LANDMARKS = {
     "Fort Kochi": (9.9656, 76.2423), "Mattancherry": (9.9574, 76.2590), "Marine Drive": (9.9816, 76.2797),
@@ -104,9 +109,30 @@ async def google_geocode(query):
     except Exception: pass
     return None
 
+WEATHER_CACHE = {"at": 0, "data": {"available": False, "message": "Weather unavailable — standard travel advice shown."}}
+
 async def seed_weather():
-    # Keep optional weather non-blocking and transparent when no configured key exists.
-    return {"available": False, "message": "Weather check is optional for this demo."}
+    if time.time() - WEATHER_CACHE["at"] < 600:
+        return WEATHER_CACHE["data"]
+    key = os.getenv("OPENWEATHER_API_KEY")
+    if not key:
+        return WEATHER_CACHE["data"]
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get("https://api.openweathermap.org/data/2.5/weather", params={"lat": 9.9675, "lon": 76.32, "appid": key, "units": "metric"})
+            body = response.json()
+            condition = body["weather"][0]["main"].lower()
+            data = {"available": True, "temperature": round(body["main"]["temp"]), "condition": body["weather"][0]["description"], "rain": condition in ("rain", "drizzle", "thunderstorm")}
+            WEATHER_CACHE.update(at=time.time(), data=data)
+            return data
+    except Exception:
+        return WEATHER_CACHE["data"]
+
+def next_departures():
+    now = datetime.now()
+    minute = now.hour * 60 + now.minute
+    intervals = (8, 14, 21)
+    return [(now.replace(second=0, microsecond=0).timestamp() + offset * 60) for offset in intervals]
 
 def seeded_passengers():
     rows = [("Anjali", "Hill Palace", "women-only"), ("Riya", "Hill Palace", "women-only"), ("Arun", "Infopark", "any"), ("Vivek", "Infopark", "any"), ("Meera", "Kakkanad", "women-only"), ("Neha", "Kakkanad", "any"), ("Nikhil", "Marine Drive", "quiet"), ("Rahul", "Fort Kochi", "any"), ("Fathima", "Panampilly Nagar", "any"), ("Kevin", "Lulu Mall", "any"), ("Jishnu", "Broadway", "any"), ("Asha", "Ernakulam Junction", "any"), ("Sanjay", "Cochin University", "quiet"), ("Tina", "Mattancherry", "any"), ("Adarsh", "Bolgatty", "any")]
@@ -115,7 +141,7 @@ def seeded_passengers():
 PASSENGERS = seeded_passengers()
 
 def build_groups():
-    eligible = [p for p in PASSENGERS if road_distance(STATIONS.get(p["origin_station"], STATIONS["Vyttila"]), (p["lat"],p["lng"]), p["destination"]) < 18]
+    eligible = [p for p in PASSENGERS if p.get("pool_opted_in", True) and road_distance(STATIONS.get(p["origin_station"], STATIONS["Vyttila"]), (p["lat"],p["lng"]), p["destination"]) < 18]
     groups, used = [], set()
     for p in eligible:
         if p["id"] in used: continue
@@ -130,6 +156,17 @@ def build_groups():
         groups.append({"group_id": "G-"+p["id"][-4:].upper(), "members": [{"name":m["name"],"tag":m["meetup_tag"]} for m in members], "suggested_mode": mode, "cost_per_member": cost, "ai_reasoning": f"Shared {mode} accepts a brief coordination stop in exchange for a lower individual fare.", "meetup_point_at_station": "Vyttila Metro main exit", "women_only": p["preference"] == "women-only", "destination": p["destination"]})
     return groups
 
+def find_pool_offer(passenger, solo_fare):
+    if passenger["distance_km"] >= 18 or passenger["preference"] == "quiet":
+        return None
+    matches = [p for p in PASSENGERS if p["id"] != passenger["id"] and p.get("pool_opted_in", True) and p["preference"] == passenger["preference"] and min(p["max_walk_m"], passenger["max_walk_m"]) >= 150 and haversine((p["lat"],p["lng"]), (passenger["lat"],passenger["lng"])) <= .9]
+    if not matches:
+        return None
+    partner = matches[0]
+    mode = "cab" if passenger["distance_km"] > 8 else "auto"
+    shared = round(fare_options(passenger["distance_km"])[mode] / 2)
+    return {"partner_name": partner["name"], "partner_tag": partner.get("meetup_tag") or "Metro gate", "mode": mode, "shared_fare": shared, "solo_fare": solo_fare, "saving": max(0, solo_fare-shared), "meetup": "Vyttila Metro main exit"}
+
 @app.get("/")
 def home(): return FileResponse(ROOT / "static" / "index.html")
 
@@ -138,6 +175,14 @@ def health(): return {"status": "healthy", "service": "LastMile"}
 
 @app.get("/stations")
 def stations(): return [{"name": n, "lat": c[0], "lng": c[1]} for n,c in STATIONS.items()]
+
+@app.get("/weather")
+async def weather(): return await seed_weather()
+
+@app.get("/bus-stands")
+def bus_stands():
+    now = datetime.now()
+    return {"stands": [{**stand, "departures": [(now.replace(second=0, microsecond=0) + __import__('datetime').timedelta(minutes=m)).strftime("%I:%M %p") for m in (8,14,21)]} for stand in BUS_STANDS], "updated_at": now.isoformat(), "source": "Scheduled terminal board — not live vehicle tracking"}
 
 @app.post("/locate")
 async def locate(req: LocateRequest):
@@ -153,10 +198,20 @@ async def locate(req: LocateRequest):
 def add_passenger(req: PassengerRequest):
     if req.origin_station not in STATIONS: raise HTTPException(400, "Unknown metro station")
     dist = road_distance(STATIONS[req.origin_station], (req.lat,req.lng), req.destination)
+    weather = asyncio.run(seed_weather())
     rec = recommendation(dist, req.budget_range)
-    p = {"id": uuid.uuid4().hex[:8], **req.model_dump(), "distance_km":dist, "created":time.time()}
+    if weather.get("rain") and rec["mode"] == "walk":
+        rec.update(mode="auto", fare=fare_options(dist)["auto"], reasoning="🌧️ Rain detected — an auto is prioritized over walking for a more comfortable last mile.")
+    p = {"id": uuid.uuid4().hex[:8], **req.model_dump(), "distance_km":dist, "created":time.time(), "pool_opted_in":False}
     PASSENGERS.append(p)
-    return {"passenger":p, "recommendation":rec, "pooling_available": dist < 18, "weather": asyncio.run(seed_weather())}
+    return {"passenger":p, "recommendation":rec, "pooling_available": dist < 18, "pool_offer":find_pool_offer(p, rec["fare"]), "weather": weather}
+
+@app.post("/passengers/{passenger_id}/join-pool")
+def join_pool(passenger_id: str):
+    passenger = next((p for p in PASSENGERS if p["id"] == passenger_id), None)
+    if not passenger: raise HTTPException(404, "Passenger not found")
+    passenger["pool_opted_in"] = True
+    return {"joined": True, "groups": build_groups(), "message": "Pool request accepted — meet at the Vyttila Metro main exit."}
 
 @app.get("/groups")
 def groups(): return {"groups": build_groups(), "updated_at": datetime.now().isoformat()}
