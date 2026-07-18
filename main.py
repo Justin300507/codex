@@ -85,8 +85,8 @@ def recommendation(distance, budget):
     if distance < 1:
         return {"mode": "walk", "fare": 0, "reasoning": "This is under 1 km — a short, zero-cost walk is the best fit.", "fares": fares, "time": 12}
     bus_time, auto_time, cab_time = distance * 4 + 10, distance * 2.5, distance * 2.2
-    if distance >= 18:
-        mode, reason = "bus", "At this distance, bus is recommended: auto and cab costs rise sharply, while pooling is unavailable."
+    if distance >= 10:
+        mode, reason = "bus", "For trips over 10 km, bus is recommended first: it is substantially cheaper than an auto or cab and avoids a long road trip."
     elif distance <= 8:
         mode, reason = "auto", "An auto avoids indirect bus waiting and is the best balance of direct travel time and cost."
     elif budget in ("250_500", "no_limit"):
