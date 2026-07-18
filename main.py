@@ -113,10 +113,18 @@ def fare_options(distance):
     bus = 10 if distance < 5 else 12 if distance < 12 else 15
     return {"walk": 0, "bus": round(bus), "auto": round(auto), "cab": round(cab)}
 
+def travel_options(distance):
+    fares = fare_options(distance)
+    return [
+        {"mode": "bus", "label": "Bus", "fare": fares["bus"], "time": round(distance * 4 + 10)},
+        {"mode": "auto", "label": "Auto", "fare": fares["auto"], "time": round(distance * 2.5)},
+        {"mode": "cab", "label": "Cab", "fare": fares["cab"], "time": round(distance * 2.2)},
+    ]
+
 def recommendation(distance, budget):
     fares = fare_options(distance)
     if distance < 1:
-        return {"mode": "walk", "fare": 0, "reasoning": "This is under 1 km — a short, zero-cost walk is the best fit.", "fares": fares, "time": 12}
+        return {"mode": "walk", "fare": 0, "reasoning": "This is under 1 km - a short, zero-cost walk is the best fit.", "fares": fares, "options": travel_options(distance), "time": 12}
     bus_time, auto_time, cab_time = distance * 4 + 10, distance * 2.5, distance * 2.2
     if distance >= 10:
         mode, reason = "bus", "For trips over 10 km, bus is recommended first: it is substantially cheaper than an auto or cab and avoids a long road trip."
@@ -127,7 +135,7 @@ def recommendation(distance, budget):
     else:
         mode, reason = "auto", "An auto gives a direct route while staying closer to your selected budget."
     fastest = min((bus_time, "bus"), (auto_time, "auto"), (cab_time, "cab"))[1]
-    return {"mode": mode, "fare": fares[mode], "reasoning": reason, "fares": fares, "time": round({"bus":bus_time,"auto":auto_time,"cab":cab_time}.get(mode,12)), "fastest": fastest, "cheapest": "bus"}
+    return {"mode": mode, "fare": fares[mode], "reasoning": reason, "fares": fares, "options": travel_options(distance), "time": round({"bus":bus_time,"auto":auto_time,"cab":cab_time}.get(mode,12)), "fastest": fastest, "cheapest": "bus"}
 
 async def google_geocode(query):
     key = os.getenv("GOOGLE_GEOCODING_API_KEY")
@@ -142,7 +150,7 @@ async def google_geocode(query):
     except Exception: pass
     return None
 
-WEATHER_CACHE = {"at": 0, "data": {"available": False, "message": "Weather unavailable — standard travel advice shown."}}
+WEATHER_CACHE = {"at": 0, "data": {"available": False, "message": "Weather unavailable - standard travel advice shown."}}
 
 async def seed_weather():
     if time.time() - WEATHER_CACHE["at"] < 600:
@@ -219,9 +227,10 @@ def bus_stands(station: str = "Vyttila"):
         raise HTTPException(400, "Unknown metro station")
     now = datetime.now()
     bus_name, bus_walk, auto_name, auto_walk, routes = STATION_HUBS[station]
-    bus = {"name": bus_name, "walk_m": bus_walk, "routes": routes, "departures": [(now.replace(second=0, microsecond=0) + __import__('datetime').timedelta(minutes=m)).strftime("%I:%M %p") for m in (8,14,21)]}
+    bus = {"name": bus_name, "walk_m": bus_walk, "routes": routes, "frequency": "Check the stop board or conductor for the next bus. Live bus timing is not available here."}
     auto = {"name": auto_name, "walk_m": auto_walk}
-    return {"station": station, "stands": [bus], "auto_stand": auto, "updated_at": now.isoformat(), "source": "Scheduled terminal board — not live vehicle tracking"}
+    cab = {"name": f"{station} Metro cab pickup", "walk_m": auto_walk + 20}
+    return {"station": station, "stands": [bus], "auto_stand": auto, "cab_stand": cab, "updated_at": now.isoformat(), "source": "Transfer points only; this app does not provide live bus timing."}
 
 @app.post("/locate")
 async def locate(req: LocateRequest):
@@ -240,7 +249,7 @@ def add_passenger(req: PassengerRequest):
     weather = asyncio.run(seed_weather())
     rec = recommendation(dist, req.budget_range)
     if weather.get("rain") and rec["mode"] == "walk":
-        rec.update(mode="auto", fare=fare_options(dist)["auto"], reasoning="🌧️ Rain detected — an auto is prioritized over walking for a more comfortable last mile.")
+        rec.update(mode="auto", fare=fare_options(dist)["auto"], reasoning="Rain: Rain detected - an auto is prioritized over walking for a more comfortable last mile.")
     p = {"id": uuid.uuid4().hex[:8], **req.model_dump(), "distance_km":dist, "created":time.time(), "pool_opted_in":False}
     PASSENGERS.append(p)
     return {"passenger":p, "recommendation":rec, "pooling_available": dist < 18, "pool_offer":find_pool_offer(p, rec["fare"]), "weather": weather}
@@ -250,7 +259,7 @@ def join_pool(passenger_id: str):
     passenger = next((p for p in PASSENGERS if p["id"] == passenger_id), None)
     if not passenger: raise HTTPException(404, "Passenger not found")
     passenger["pool_opted_in"] = True
-    return {"joined": True, "groups": build_groups(), "message": "Pool request accepted — meet at the Vyttila Metro main exit."}
+    return {"joined": True, "groups": build_groups(), "message": "Pool request accepted - meet at the Vyttila Metro main exit."}
 
 @app.get("/groups")
 def groups(): return {"groups": build_groups(), "updated_at": datetime.now().isoformat()}
