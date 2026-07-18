@@ -23,8 +23,14 @@ function App() {
   const [cabStand, setCabStand] = useState(null);
   const [geo, setGeo] = useState("Locating near you...");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const api = (path, opts) => fetch(path, opts).then((r) => r.json());
+  const api = async (path, opts) => {
+    const r = await fetch(path, opts);
+    const data = await r.json();
+    if (!r.ok) throw new Error(Array.isArray(data.detail) ? data.detail[0].msg : data.detail || "Request failed");
+    return data;
+  };
 
   async function load() {
     try {
@@ -69,6 +75,8 @@ function App() {
 
   async function locate(e) {
     e.preventDefault();
+    if (!form.destination.trim()) return;
+    setError("");
     setLoading(true);
     try {
       const m = await api("/locate", {
@@ -77,12 +85,15 @@ function App() {
         body: JSON.stringify({destination: form.destination}),
       });
       setConfirm(m);
+    } catch (err) {
+      setError(err.message || "Could not find that destination. Please try a nearby landmark.");
     } finally {
       setLoading(false);
     }
   }
 
   async function submit() {
+    setError("");
     setLoading(true);
     try {
       const r = await api("/passengers", {
@@ -96,6 +107,8 @@ function App() {
       setConfirm(null);
       setForm({...form, name: "", destination: "", meetup_tag: ""});
       load();
+    } catch (err) {
+      setError(err.message || "Could not save this trip. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -126,12 +139,13 @@ function App() {
         <div className="fields">
           <label>Name<input required name="name" value={form.name} onChange={change} placeholder="Your name"/></label>
           <label>Origin station<select name="origin_station" value={form.origin_station} onChange={change}>{stations.map((s) => <option key={s.name}>{s.name}</option>)}</select></label>
-          <label className="full">Destination<input required name="destination" value={form.destination} onChange={change} placeholder="e.g. Thripunithura Hill Palace, or your street"/></label>
+          <label className="full">Destination<input required maxLength="1200" name="destination" value={form.destination} onChange={change} placeholder="e.g. Thripunithura Hill Palace, or your street"/></label>
           <label>Budget<select name="budget_range" value={form.budget_range} onChange={change}><option value="under_100">Under Rs 100</option><option value="100_250">Rs 100-250</option><option value="250_500">Rs 250-500</option><option value="no_limit">No limit</option></select></label>
           <label>Travel preference<select name="preference" value={form.preference} onChange={change}><option value="any">Any ride</option><option value="women-only">Women-only</option><option value="quiet">Quiet ride</option></select>{form.preference === "women-only" && <span className="hint">Self-declared preference. Please use responsibly to support safer ride matching.</span>}</label>
           <label>Max walk: {form.max_walk_m}m<input className="range" type="range" min="0" max="1000" step="50" name="max_walk_m" value={form.max_walk_m} onChange={change}/></label>
           <label>Meetup tag<input name="meetup_tag" value={form.meetup_tag} onChange={change} placeholder="e.g. Blue backpack"/></label>
         </div>
+        {error && <p className="error">{error}</p>}
         <div className="actions"><button className="primary" disabled={loading}>{loading ? "Finding location..." : "Find my last mile"}</button></div>
       </form>
 

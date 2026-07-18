@@ -85,7 +85,7 @@ LANDMARKS = {
 }
 
 class LocateRequest(BaseModel):
-    destination: str = Field(min_length=2, max_length=160)
+    destination: str = Field(min_length=2, max_length=1200)
 
 class PassengerRequest(BaseModel):
     name: str = Field(min_length=2, max_length=60)
@@ -106,28 +106,33 @@ def road_distance(origin, dest, destination_name=""):
     if "fort kochi" in destination_name.lower(): return 14.8
     return round(haversine(origin, dest) * 1.4, 1)
 
-def fare_options(distance):
+FORT_KOCHI_FARES = {"bus": 25, "auto": 320, "cab": 360}
+
+def fare_options(distance, destination_name=""):
     night = datetime.now().hour >= 22 or datetime.now().hour < 5
     auto = max(26, 26 + 17.14 * max(0, distance - 1)) * (1.5 if night else 1)
     cab = 68 + 20 * distance
     bus = 10 if distance < 5 else 12 if distance < 12 else 15
-    return {"walk": 0, "bus": round(bus), "auto": round(auto), "cab": round(cab)}
+    fares = {"walk": 0, "bus": round(bus), "auto": round(auto), "cab": round(cab)}
+    if "fort kochi" in destination_name.lower():
+        fares.update(FORT_KOCHI_FARES)
+    return fares
 
-def travel_options(distance):
-    fares = fare_options(distance)
+def travel_options(distance, destination_name=""):
+    fares = fare_options(distance, destination_name)
     return [
         {"mode": "bus", "label": "Bus", "fare": fares["bus"], "time": round(distance * 4 + 10)},
         {"mode": "auto", "label": "Auto", "fare": fares["auto"], "time": round(distance * 2.5)},
         {"mode": "cab", "label": "Cab", "fare": fares["cab"], "time": round(distance * 2.2)},
     ]
 
-def recommendation(distance, budget):
-    fares = fare_options(distance)
+def recommendation(distance, budget, destination_name=""):
+    fares = fare_options(distance, destination_name)
     if distance < 1:
-        return {"mode": "walk", "fare": 0, "reasoning": "This is under 1 km - a short, zero-cost walk is the best fit.", "fares": fares, "options": travel_options(distance), "time": 12}
+        return {"mode": "walk", "fare": 0, "reasoning": "This is under 1 km - a short, zero-cost walk is the best fit.", "fares": fares, "options": travel_options(distance, destination_name), "time": 12}
     bus_time, auto_time, cab_time = distance * 4 + 10, distance * 2.5, distance * 2.2
-    if distance >= 10:
-        mode, reason = "bus", "For trips over 10 km, bus is recommended first: it is substantially cheaper than an auto or cab and avoids a long road trip."
+    if distance >= 18:
+        mode, reason = "bus", "For trips 18 km or longer, bus is recommended first: it is substantially cheaper than an auto or cab and avoids a long road trip."
     elif distance <= 8:
         mode, reason = "auto", "An auto avoids indirect bus waiting and is the best balance of direct travel time and cost."
     elif budget in ("250_500", "no_limit"):
@@ -135,18 +140,23 @@ def recommendation(distance, budget):
     else:
         mode, reason = "auto", "An auto gives a direct route while staying closer to your selected budget."
     fastest = min((bus_time, "bus"), (auto_time, "auto"), (cab_time, "cab"))[1]
-    return {"mode": mode, "fare": fares[mode], "reasoning": reason, "fares": fares, "options": travel_options(distance), "time": round({"bus":bus_time,"auto":auto_time,"cab":cab_time}.get(mode,12)), "fastest": fastest, "cheapest": "bus"}
+    return {"mode": mode, "fare": fares[mode], "reasoning": reason, "fares": fares, "options": travel_options(distance, destination_name), "time": round({"bus":bus_time,"auto":auto_time,"cab":cab_time}.get(mode,12)), "fastest": fastest, "cheapest": "bus"}
 
 async def google_geocode(query):
     key = os.getenv("GOOGLE_GEOCODING_API_KEY")
     if not key: return None
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            res = await client.get("https://maps.googleapis.com/maps/api/geocode/json", params={"address": f"{query}, Kochi, Kerala", "region": "in", "key": key})
+            clean = query.strip()[:160]
+            res = await client.get("https://maps.googleapis.com/maps/api/geocode/json", params={"address": f"{clean}, Kochi, Kerala", "region": "in", "key": key})
             item = res.json().get("results", [None])[0]
             if item:
+                address = item["formatted_address"]
+                query_words = {w for w in clean.lower().replace(",", " ").split() if len(w) > 3 and not w.isdigit()}
+                if query_words and not any(w in address.lower() for w in query_words) and address.lower() in ("kochi, kerala, india", "ernakulam, kerala, india"):
+                    return None
                 loc = item["geometry"]["location"]
-                return {"address": item["formatted_address"], "lat": loc["lat"], "lng": loc["lng"], "source": "google"}
+                return {"address": address, "lat": loc["lat"], "lng": loc["lng"], "source": "google"}
     except Exception: pass
     return None
 
@@ -186,27 +196,94 @@ def build_groups():
     groups, used = [], set()
     for p in eligible:
         if p["id"] in used: continue
-        matches = [q for q in eligible if q["id"] not in used and q["id"] != p["id"] and p["preference"] == q["preference"] and haversine((p["lat"],p["lng"]),(q["lat"],q["lng"])) <= .9 and min(p["max_walk_m"],q["max_walk_m"]) >= 150]
-        members = [p] + matches[:3]
+        matches = sorted((q for q in eligible if q["id"] not in used and pool_compatible(p, q)), key=lambda q: haversine((p["lat"],p["lng"]),(q["lat"],q["lng"])))
+        if not matches:
+            continue
+        first_gap = haversine((p["lat"],p["lng"]),(matches[0]["lat"],matches[0]["lng"]))
+        tier = 4 if first_gap <= .3 else 2
+        members = [p] + [q for q in matches if haversine((p["lat"],p["lng"]),(q["lat"],q["lng"])) <= (.3 if tier == 4 else .9)][:tier-1]
         if len(members) < 2: continue
         used.update(m["id"] for m in members)
         dist = road_distance(STATIONS.get(p["origin_station"], STATIONS["Vyttila"]), (p["lat"],p["lng"]), p["destination"])
-        rec = recommendation(dist, p["budget_range"])
+        rec = recommendation(dist, p["budget_range"], p["destination"])
         mode = "cab" if rec["mode"] == "cab" else "auto"
-        cost = round(fare_options(dist)[mode] / len(members))
-        groups.append({"group_id": "G-"+p["id"][-4:].upper(), "members": [{"name":m["name"],"tag":m["meetup_tag"]} for m in members], "suggested_mode": mode, "cost_per_member": cost, "ai_reasoning": f"Shared {mode} accepts a brief coordination stop in exchange for a lower individual fare.", "meetup_point_at_station": "Vyttila Metro main exit", "women_only": p["preference"] == "women-only", "destination": p["destination"]})
+        cost = round(fare_options(dist, p["destination"])[mode] / len(members))
+        reason, source = llm_group_reasoning(members, p["destination"], mode, cost, dist)
+        groups.append({"group_id": "G-"+p["id"][-4:].upper(), "members": [{"name":m["name"],"tag":m["meetup_tag"]} for m in members], "suggested_mode": mode, "cost_per_member": cost, "ai_reasoning": reason, "ai_reasoning_source": source, "meetup_point_at_station": "Vyttila Metro main exit", "women_only": p["preference"] == "women-only", "destination": p["destination"]})
     return groups
+
+def same_direction(origin, a, b):
+    va, vb = (a[0] - origin[0], a[1] - origin[1]), (b[0] - origin[0], b[1] - origin[1])
+    return va[0] * vb[0] + va[1] * vb[1] > 0
+
+def pool_compatible(p, q):
+    if p["id"] == q["id"] or p["origin_station"] != q["origin_station"] or p["preference"] != q["preference"]:
+        return False
+    if min(p["max_walk_m"], q["max_walk_m"]) < 150:
+        return False
+    origin = STATIONS.get(p["origin_station"], STATIONS["Vyttila"])
+    return same_direction(origin, (p["lat"],p["lng"]), (q["lat"],q["lng"])) and haversine((p["lat"],p["lng"]),(q["lat"],q["lng"])) <= .9
+
+def fallback_group_reasoning(members, destination, mode, cost, dist):
+    names = ", ".join(m["name"] for m in members)
+    article = "an" if mode == "auto" else "a"
+    if any(m["preference"] == "women-only" for m in members):
+        return f"{names} are matched as a women-only group toward {destination}; splitting {article} {mode} keeps the station pickup simple at about Rs {cost} each."
+    if "fort kochi" in destination.lower():
+        return f"{names} share the longer Fort Kochi leg, where the fixed demo fare makes {article} {mode} split cheaper than separate rides."
+    if len(members) >= 4:
+        return f"{names} are within a short destination cluster, so a four-person {mode} gives the best per-person fare at about Rs {cost}."
+    return f"{names} are headed the same way within the pooling radius; sharing {article} {mode} saves money without adding a large detour over {dist} km."
+
+def clean_reasoning(text):
+    return text.replace("\u2011", "-").replace("\u2013", "-").replace("\u2014", "-").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"').replace("\u202f", " ").replace("\xa0", " ")
+
+def llm_group_reasoning(members, destination, mode, cost, dist):
+    key = os.getenv("CEREBRAS_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not key:
+        return fallback_group_reasoning(members, destination, mode, cost, dist), "fallback"
+    prompt = (
+        "Write one concise, demo-friendly sentence explaining this ride-pool match. "
+        "Mention the specific destination or preference if useful. Do not use markdown. "
+        f"Members: {', '.join(m['name'] for m in members)}. Destination: {destination}. "
+        f"Mode: {mode}. Distance: {dist} km. Cost per member: Rs {cost}. "
+        f"Preference: {members[0]['preference']}."
+    )
+    try:
+        with httpx.Client(timeout=2.5) as client:
+            res = client.post(
+                "https://api.cerebras.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={
+                    "model": os.getenv("CEREBRAS_MODEL", "gpt-oss-120b"),
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 120,
+                    "temperature": 0.3,
+                    "reasoning_effort": "low",
+                    "stream": False,
+                },
+            )
+            res.raise_for_status()
+            body = res.json()
+            message = body.get("choices", [{}])[0].get("message", {})
+            text = clean_reasoning((message.get("content") or message.get("reasoning") or "").strip())
+            if text:
+                return text, "cerebras"
+    except Exception:
+        pass
+    return fallback_group_reasoning(members, destination, mode, cost, dist), "fallback"
 
 def find_pool_offer(passenger, solo_fare):
     if passenger["distance_km"] >= 18 or passenger["preference"] == "quiet":
         return None
-    matches = [p for p in PASSENGERS if p["id"] != passenger["id"] and p.get("pool_opted_in", True) and p["origin_station"] == passenger["origin_station"] and p["preference"] == passenger["preference"] and min(p["max_walk_m"], passenger["max_walk_m"]) >= 150 and haversine((p["lat"],p["lng"]), (passenger["lat"],passenger["lng"])) <= .9]
+    matches = sorted((p for p in PASSENGERS if p.get("pool_opted_in", True) and pool_compatible(passenger, p)), key=lambda p: haversine((p["lat"],p["lng"]), (passenger["lat"],passenger["lng"])))
     if not matches:
         return None
     partner = matches[0]
     mode = "cab" if passenger["distance_km"] > 8 else "auto"
-    riders = min(4, len(matches) + 1)
-    shared = round(fare_options(passenger["distance_km"])[mode] / riders)
+    close = [p for p in matches if haversine((p["lat"],p["lng"]), (passenger["lat"],passenger["lng"])) <= .3]
+    riders = min(4, len(close) + 1) if close else 2
+    shared = round(fare_options(passenger["distance_km"], passenger["destination"])[mode] / riders)
     return {"partner_name": partner["name"], "partner_tag": partner.get("meetup_tag") or "Metro gate", "mode": mode, "riders": riders, "shared_fare": shared, "solo_fare": solo_fare, "saving": max(0, solo_fare-shared), "meetup": "Vyttila Metro main exit"}
 
 @app.get("/")
@@ -237,8 +314,11 @@ async def locate(req: LocateRequest):
     real = await google_geocode(req.destination)
     if real: return real
     names = list(LANDMARKS)
-    match = difflib.get_close_matches(req.destination.lower(), [n.lower() for n in names], n=1, cutoff=.25)
-    name = next((n for n in names if match and n.lower() == match[0]), "Vyttila Hub")
+    query = req.destination.lower()
+    name = next((n for n in names if n.lower() in query), None)
+    if not name:
+        match = difflib.get_close_matches(query, [n.lower() for n in names], n=1, cutoff=.45)
+        name = next((n for n in names if match and n.lower() == match[0]), "Vyttila Hub")
     lat,lng = LANDMARKS[name]
     return {"address": name, "lat": lat, "lng": lng, "source": "fallback"}
 
@@ -247,9 +327,9 @@ def add_passenger(req: PassengerRequest):
     if req.origin_station not in STATIONS: raise HTTPException(400, "Unknown metro station")
     dist = road_distance(STATIONS[req.origin_station], (req.lat,req.lng), req.destination)
     weather = asyncio.run(seed_weather())
-    rec = recommendation(dist, req.budget_range)
+    rec = recommendation(dist, req.budget_range, req.destination)
     if weather.get("rain") and rec["mode"] == "walk":
-        rec.update(mode="auto", fare=fare_options(dist)["auto"], reasoning="Rain: Rain detected - an auto is prioritized over walking for a more comfortable last mile.")
+        rec.update(mode="auto", fare=fare_options(dist, req.destination)["auto"], reasoning="Rain: Rain detected - an auto is prioritized over walking for a more comfortable last mile.")
     p = {"id": uuid.uuid4().hex[:8], **req.model_dump(), "distance_km":dist, "created":time.time(), "pool_opted_in":False}
     PASSENGERS.append(p)
     return {"passenger":p, "recommendation":rec, "pooling_available": dist < 18, "pool_offer":find_pool_offer(p, rec["fare"]), "weather": weather}
