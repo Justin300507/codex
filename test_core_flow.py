@@ -17,7 +17,7 @@ def passenger(name, lat, lng, dest="Test", preference="any", max_walk_m=300):
         "budget_range": "no_limit",
         "max_walk_m": max_walk_m,
         "preference": preference,
-        "meetup_tag": name,
+        "meetup_tag": f"{name} tag",
         "pool_opted_in": True,
     }
 

@@ -143,7 +143,7 @@ function App() {
           <label>Budget<select name="budget_range" value={form.budget_range} onChange={change}><option value="under_100">Under Rs 100</option><option value="100_250">Rs 100-250</option><option value="250_500">Rs 250-500</option><option value="no_limit">No limit</option></select></label>
           <label>Travel preference<select name="preference" value={form.preference} onChange={change}><option value="any">Any ride</option><option value="women-only">Women-only</option><option value="quiet">Quiet ride</option></select>{form.preference === "women-only" && <span className="hint">Self-declared preference. Please use responsibly to support safer ride matching.</span>}</label>
           <label>Max walk: {form.max_walk_m}m<input className="range" type="range" min="0" max="1000" step="50" name="max_walk_m" value={form.max_walk_m} onChange={change}/></label>
-          <label>Meetup tag<input name="meetup_tag" value={form.meetup_tag} onChange={change} placeholder="e.g. Blue backpack"/></label>
+          <label>Meetup tag<input required minLength="2" name="meetup_tag" value={form.meetup_tag} onChange={change} placeholder="e.g. Blue backpack"/></label>
         </div>
         {error && <p className="error">{error}</p>}
         <div className="actions"><button className="primary" disabled={loading}>{loading ? "Finding location..." : "Find my last mile"}</button></div>

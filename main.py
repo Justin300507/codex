@@ -96,7 +96,7 @@ class PassengerRequest(BaseModel):
     budget_range: Literal["under_100", "100_250", "250_500", "no_limit"] = "no_limit"
     max_walk_m: int = Field(default=300, ge=0, le=1500)
     preference: Literal["any", "women-only", "quiet"] = "any"
-    meetup_tag: str = Field(default="", max_length=60)
+    meetup_tag: str = Field(min_length=2, max_length=60)
 
 def haversine(a, b):
     lat1, lon1, lat2, lon2 = map(math.radians, [a[0], a[1], b[0], b[1]])
@@ -187,7 +187,8 @@ def next_departures():
 
 def seeded_passengers():
     rows = [("Anjali", "Hill Palace", "women-only"), ("Riya", "Hill Palace", "women-only"), ("Arun", "Infopark", "any"), ("Vivek", "Infopark", "any"), ("Meera", "Kakkanad", "women-only"), ("Neha", "Kakkanad", "any"), ("Nikhil", "Marine Drive", "quiet"), ("Rahul", "Fort Kochi", "any"), ("Fathima", "Panampilly Nagar", "any"), ("Kevin", "Lulu Mall", "any"), ("Jishnu", "Broadway", "any"), ("Asha", "Ernakulam Junction", "any"), ("Sanjay", "Cochin University", "quiet"), ("Tina", "Mattancherry", "any"), ("Adarsh", "Bolgatty", "any")]
-    return [{"id": f"seed-{i}", "name": n, "destination": d, "lat": LANDMARKS[d][0], "lng": LANDMARKS[d][1], "origin_station": "Vyttila", "budget_range": "no_limit", "max_walk_m": 400, "preference": p, "meetup_tag": "Metro gate", "created": time.time()-i*60} for i,(n,d,p) in enumerate(rows)]
+    tags = ["Red tote", "White cap", "Laptop bag", "Black shirt", "Green dupatta", "Yellow umbrella", "Grey backpack", "Blue suitcase", "Pink scarf", "Brown satchel", "Navy hoodie", "Orange helmet", "Canvas bag", "Purple kurta", "Checked shirt"]
+    return [{"id": f"seed-{i}", "name": n, "destination": d, "lat": LANDMARKS[d][0], "lng": LANDMARKS[d][1], "origin_station": "Vyttila", "budget_range": "no_limit", "max_walk_m": 400, "preference": p, "meetup_tag": tags[i], "created": time.time()-i*60} for i,(n,d,p) in enumerate(rows)]
 
 PASSENGERS = seeded_passengers()
 
