@@ -44,6 +44,9 @@ def test_pool_tiers_and_guards():
         main.PASSENGERS = [passenger("a", 10.0000, 76.3200), passenger("b", 10.0063, 76.3200)]
         assert len(main.build_groups()[0]["members"]) == 2
 
+        main.PASSENGERS = [passenger("a", 10.0000, 76.3200), passenger("b", 10.0085, 76.3200)]
+        assert len(main.build_groups()[0]["members"]) == 2
+
         main.PASSENGERS = [passenger("a", 10.0000, 76.3200), passenger("b", 10.0140, 76.3200)]
         assert main.build_groups() == []
 

@@ -208,6 +208,7 @@ def seeded_passengers():
     return [{"id": f"seed-{i}", "name": n, "destination": d, "lat": LANDMARKS[d][0], "lng": LANDMARKS[d][1], "origin_station": "Vyttila", "budget_range": "no_limit", "max_walk_m": 400, "preference": p, "meetup_tag": tags[i], "created": time.time()-i*60} for i,(n,d,p) in enumerate(rows)]
 
 PASSENGERS = seeded_passengers()
+POOL_RADIUS_KM = 1.0
 
 def build_groups():
     eligible = [p for p in PASSENGERS if p.get("pool_opted_in", True) and road_distance(STATIONS.get(p["origin_station"], STATIONS["Vyttila"]), (p["lat"],p["lng"]), p["destination"]) < 18]
@@ -219,7 +220,7 @@ def build_groups():
             continue
         first_gap = haversine((p["lat"],p["lng"]),(matches[0]["lat"],matches[0]["lng"]))
         tier = 4 if first_gap <= .3 else 2
-        members = [p] + [q for q in matches if haversine((p["lat"],p["lng"]),(q["lat"],q["lng"])) <= (.3 if tier == 4 else .9)][:tier-1]
+        members = [p] + [q for q in matches if haversine((p["lat"],p["lng"]),(q["lat"],q["lng"])) <= (.3 if tier == 4 else POOL_RADIUS_KM)][:tier-1]
         if len(members) < 2: continue
         used.update(m["id"] for m in members)
         dist = road_distance(STATIONS.get(p["origin_station"], STATIONS["Vyttila"]), (p["lat"],p["lng"]), p["destination"])
@@ -240,7 +241,7 @@ def pool_compatible(p, q):
     if min(p["max_walk_m"], q["max_walk_m"]) < 150:
         return False
     origin = STATIONS.get(p["origin_station"], STATIONS["Vyttila"])
-    return same_direction(origin, (p["lat"],p["lng"]), (q["lat"],q["lng"])) and haversine((p["lat"],p["lng"]),(q["lat"],q["lng"])) <= .9
+    return same_direction(origin, (p["lat"],p["lng"]), (q["lat"],q["lng"])) and haversine((p["lat"],p["lng"]),(q["lat"],q["lng"])) <= POOL_RADIUS_KM
 
 def fallback_group_reasoning(members, destination, mode, cost, dist):
     names = ", ".join(m["name"] for m in members)
