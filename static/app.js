@@ -121,7 +121,7 @@ function App() {
   }
 
   function share() {
-    const text = `LastMile Kochi Metro: heading to ${recommendation?.distance || ""} km destination. Meet at Vyttila Metro main exit.`;
+    const text = `LastMile Kochi Metro: heading to ${recommendation?.distance || ""} km destination. Meet at ${form.origin_station} Metro main exit.`;
     navigator.share ? navigator.share({title: "Share my ride", text}) : window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
   }
 
@@ -168,7 +168,7 @@ function App() {
     </section>
 
     <section>
-      <div className="dashhead"><div><div className="eyebrow">LIVE COMMUNITY DASHBOARD</div><h2>Ride pools leaving from Vyttila</h2></div><small className="sub">Refreshes every 3 seconds</small></div>
+      <div className="dashhead"><div><div className="eyebrow">LIVE COMMUNITY DASHBOARD</div><h2>Ride pools leaving from metro stations</h2></div><small className="sub">Refreshes every 3 seconds</small></div>
       <div className="stats"><Stat label="Passengers" value={stats.total_passengers || "-"}/><Stat label="Groups formed" value={stats.groups_formed || "-"}/><Stat label="Est. saved" value={"Rs " + (stats.money_saved || 0)}/><Stat label="CO2 avoided" value={(stats.co2_saved || 0) + " kg"}/></div>
       <p className="sub">Most requested area: <b>{stats.most_requested || "-"}</b></p>
       <div className="groups">{groups.map((g) => <Group key={g.group_id} g={g}/>)}</div>

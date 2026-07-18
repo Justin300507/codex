@@ -106,6 +106,9 @@ def road_distance(origin, dest, destination_name=""):
     if "fort kochi" in destination_name.lower(): return 14.8
     return round(haversine(origin, dest) * 1.4, 1)
 
+def station_meetup(station):
+    return f"{station} Metro main exit"
+
 FORT_KOCHI_FARES = {"bus": 25, "auto": 320, "cab": 360}
 
 def fare_options(distance, destination_name=""):
@@ -210,7 +213,7 @@ def build_groups():
         mode = "cab" if rec["mode"] == "cab" else "auto"
         cost = round(fare_options(dist, p["destination"])[mode] / len(members))
         reason, source = llm_group_reasoning(members, p["destination"], mode, cost, dist)
-        groups.append({"group_id": "G-"+p["id"][-4:].upper(), "members": [{"name":m["name"],"tag":m["meetup_tag"]} for m in members], "suggested_mode": mode, "cost_per_member": cost, "ai_reasoning": reason, "ai_reasoning_source": source, "meetup_point_at_station": "Vyttila Metro main exit", "women_only": p["preference"] == "women-only", "destination": p["destination"]})
+        groups.append({"group_id": "G-"+p["id"][-4:].upper(), "members": [{"name":m["name"],"tag":m["meetup_tag"]} for m in members], "suggested_mode": mode, "cost_per_member": cost, "ai_reasoning": reason, "ai_reasoning_source": source, "meetup_point_at_station": station_meetup(p["origin_station"]), "women_only": p["preference"] == "women-only", "destination": p["destination"]})
     return groups
 
 def same_direction(origin, a, b):
@@ -285,7 +288,7 @@ def find_pool_offer(passenger, solo_fare):
     close = [p for p in matches if haversine((p["lat"],p["lng"]), (passenger["lat"],passenger["lng"])) <= .3]
     riders = min(4, len(close) + 1) if close else 2
     shared = round(fare_options(passenger["distance_km"], passenger["destination"])[mode] / riders)
-    return {"partner_name": partner["name"], "partner_tag": partner.get("meetup_tag") or "Metro gate", "mode": mode, "riders": riders, "shared_fare": shared, "solo_fare": solo_fare, "saving": max(0, solo_fare-shared), "meetup": "Vyttila Metro main exit"}
+    return {"partner_name": partner["name"], "partner_tag": partner.get("meetup_tag") or "Metro gate", "mode": mode, "riders": riders, "shared_fare": shared, "solo_fare": solo_fare, "saving": max(0, solo_fare-shared), "meetup": station_meetup(passenger["origin_station"])}
 
 @app.get("/")
 def home(): return FileResponse(ROOT / "static" / "index.html")
@@ -340,7 +343,7 @@ def join_pool(passenger_id: str):
     passenger = next((p for p in PASSENGERS if p["id"] == passenger_id), None)
     if not passenger: raise HTTPException(404, "Passenger not found")
     passenger["pool_opted_in"] = True
-    return {"joined": True, "groups": build_groups(), "message": "Pool request accepted - meet at the Vyttila Metro main exit."}
+    return {"joined": True, "groups": build_groups(), "message": f"Pool request accepted - meet at the {station_meetup(passenger['origin_station'])}."}
 
 @app.get("/groups")
 def groups(): return {"groups": build_groups(), "updated_at": datetime.now().isoformat()}

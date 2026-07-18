@@ -78,3 +78,16 @@ def test_locate_bad_and_long_inputs_do_not_crash():
     long_result = client.post("/locate", json={"destination": long_text})
     assert long_result.status_code == 200
     assert "lat" in long_result.json()
+
+
+def test_group_meetup_uses_origin_station():
+    old = main.PASSENGERS
+    try:
+        a = passenger("a", 9.9497, 76.3630, dest="Hill Palace")
+        b = passenger("b", 9.9499, 76.3632, dest="Hill Palace")
+        a["origin_station"] = b["origin_station"] = "Thrippunithura Terminal"
+        main.PASSENGERS = [a, b]
+        group = main.build_groups()[0]
+        assert group["meetup_point_at_station"] == "Thrippunithura Terminal Metro main exit"
+    finally:
+        main.PASSENGERS = old
