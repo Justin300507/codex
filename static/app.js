@@ -21,6 +21,7 @@ function App() {
   const [stands, setStands] = useState([]);
   const [autoStand, setAutoStand] = useState(null);
   const [cabStand, setCabStand] = useState(null);
+  const [timetable, setTimetable] = useState(null);
   const [geo, setGeo] = useState("Locating near you...");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -66,6 +67,7 @@ function App() {
         setAutoStand(null);
         setCabStand(null);
       });
+    setTimetable(null);
   }, [form.origin_station]);
 
   const change = (e) => setForm({
@@ -125,6 +127,10 @@ function App() {
     navigator.share ? navigator.share({title: "Share my ride", text}) : window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
   }
 
+  async function showTimetable() {
+    setTimetable(await api("/bus-timetable?station=" + encodeURIComponent(form.origin_station)));
+  }
+
   return <main className="shell">
     <header className="hero">
       <div className="brand"><div className="mark">LM</div><div><div className="eyebrow">KOCHI METRO - LAST-MILE COMPANION</div><h1>LastMile</h1><div className="location">{geo}</div></div></div>
@@ -149,6 +155,14 @@ function App() {
         <div className="actions"><button className="primary" disabled={loading}>{loading ? "Finding location..." : "Find my last mile"}</button></div>
       </form>
 
+      <aside className="card transfer-card">
+        {poolOffer && <PoolOffer offer={poolOffer} onJoin={joinPool}/>}
+        <div className="dashhead compact"><div><div className="eyebrow">LIVE POOLING</div><h2>Nearby ride pools</h2></div><small className="sub">{groups.length} active</small></div>
+        <div className="groups featured">{groups.slice(0, 2).map((g) => <Group key={g.group_id} g={g}/>)}</div>
+        {!groups.length && <p className="notice">No active pools yet. Submit your trip and join the matching queue.</p>}
+        {recommendation && <Recommendation data={recommendation} onShare={share}/>}
+      </aside>
+
       <aside className="card">
         <h2>Metro-to-terminal connection</h2>
         <p className="sub">Nearest bus, auto, and cab pickup after alighting at {form.origin_station}.</p>
@@ -158,12 +172,12 @@ function App() {
           <b>Bus: {stand.name} - {stand.walk_m}m walk</b>
           <small>{stand.routes.join(" - ")}</small>
           <small>{stand.frequency}</small>
+          <button type="button" className="secondary mini" onClick={showTimetable}>Bus timetable</button>
         </div>)}
+        {timetable && <Timetable data={timetable}/>}
         {autoStand && <div className="auto-board"><b>Auto: {autoStand.name} - {autoStand.walk_m}m walk</b><small>Direct last-mile rides are available from this pickup point.</small></div>}
         {cabStand && <div className="auto-board"><b>Cab: {cabStand.name} - {cabStand.walk_m}m walk</b><small>Use app cab pickup or local taxi queue where available.</small></div>}
         <div className="station"><span>S</span><div><b>Safety-first sharing</b><br/><small>Pooling is always opt-in. No tracking or contacts are stored.</small></div></div>
-        {recommendation && <Recommendation data={recommendation} onShare={share}/>}
-        {poolOffer && <PoolOffer offer={poolOffer} onJoin={joinPool}/>}
       </aside>
     </section>
 
@@ -202,6 +216,17 @@ function PoolOffer({offer, onJoin}) {
     <p className="sub">{offer.joined ? (hasMatch ? `Meet at ${offer.meetup}. Your match will appear on the dashboard.` : "We will keep this rider available for compatible people from the same station.") : hasMatch ? `Share a ${offer.mode} with ${offer.partner_name} (${offer.partner_tag}). ${offer.riders} riders split the fare: ${money(offer.solo_fare)} to ${money(offer.shared_fare)}.` : "No compatible rider is waiting right now. Join the queue only if you want to be considered for a future nearby match."}</p>
     {!offer.joined && <button className="primary" onClick={onJoin}>{hasMatch ? `Join pool - save ${money(offer.saving)}` : "Join matching queue"}</button>}
     <p className="notice">Opt-in only - choosing a solo ride never adds you to a pool.</p>
+  </div>;
+}
+
+function Timetable({data}) {
+  return <div className="timetable">
+    <div><b>{data.stop}</b><small>{data.walk_m}m walk from {data.station}</small></div>
+    {data.routes.map((r) => <details key={r.route} open>
+      <summary>{r.route}<span>{r.next.join(" / ")}</span></summary>
+      <small>{r.note}</small>
+      <div className="times">{r.all.map((t) => <span key={t}>{t}</span>)}</div>
+    </details>)}
   </div>;
 }
 

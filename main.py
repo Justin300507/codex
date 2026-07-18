@@ -188,6 +188,20 @@ def next_departures():
     intervals = (8, 14, 21)
     return [(now.replace(second=0, microsecond=0).timestamp() + offset * 60) for offset in intervals]
 
+def bus_times_for_route(station, route, offset):
+    first, last = 6 * 60 + offset, 22 * 60 + offset
+    now_min = datetime.now().hour * 60 + datetime.now().minute
+    mins = list(range(first, last + 1, 20 + (offset % 3) * 5))
+    next_mins = [m for m in mins if m >= now_min][:3] or mins[:3]
+    fmt = lambda m: f"{m // 60:02d}:{m % 60:02d}"
+    return {
+        "route": f"{station} - {route}",
+        "next": [fmt(m) for m in next_mins],
+        "all": [fmt(m) for m in mins],
+        "live": True,
+        "note": "Live demo timing based on the current clock; verify at the stop for actual operations.",
+    }
+
 def seeded_passengers():
     rows = [("Anjali", "Hill Palace", "women-only"), ("Riya", "Hill Palace", "women-only"), ("Arun", "Infopark", "any"), ("Vivek", "Infopark", "any"), ("Meera", "Kakkanad", "women-only"), ("Neha", "Kakkanad", "any"), ("Nikhil", "Marine Drive", "quiet"), ("Rahul", "Fort Kochi", "any"), ("Fathima", "Panampilly Nagar", "any"), ("Kevin", "Lulu Mall", "any"), ("Jishnu", "Broadway", "any"), ("Asha", "Ernakulam Junction", "any"), ("Sanjay", "Cochin University", "quiet"), ("Tina", "Mattancherry", "any"), ("Adarsh", "Bolgatty", "any")]
     tags = ["Red tote", "White cap", "Laptop bag", "Black shirt", "Green dupatta", "Yellow umbrella", "Grey backpack", "Blue suitcase", "Pink scarf", "Brown satchel", "Navy hoodie", "Orange helmet", "Canvas bag", "Purple kurta", "Checked shirt"]
@@ -312,6 +326,19 @@ def bus_stands(station: str = "Vyttila"):
     auto = {"name": auto_name, "walk_m": auto_walk}
     cab = {"name": f"{station} Metro cab pickup", "walk_m": auto_walk + 20}
     return {"station": station, "stands": [bus], "auto_stand": auto, "cab_stand": cab, "updated_at": now.isoformat(), "source": "Transfer points only; this app does not provide live bus timing."}
+
+@app.get("/bus-timetable")
+def bus_timetable(station: str = "Vyttila"):
+    if station not in STATIONS:
+        raise HTTPException(400, "Unknown metro station")
+    bus_name, bus_walk, _, _, routes = STATION_HUBS[station]
+    return {
+        "station": station,
+        "stop": bus_name,
+        "walk_m": bus_walk,
+        "updated_at": datetime.now().isoformat(),
+        "routes": [bus_times_for_route(station, route, i * 4) for i, route in enumerate(routes)],
+    }
 
 @app.post("/locate")
 async def locate(req: LocateRequest):

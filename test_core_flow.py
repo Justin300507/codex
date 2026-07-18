@@ -91,3 +91,12 @@ def test_group_meetup_uses_origin_station():
         assert group["meetup_point_at_station"] == "Thrippunithura Terminal Metro main exit"
     finally:
         main.PASSENGERS = old
+
+
+def test_bus_timetable_for_station():
+    r = client.get("/bus-timetable?station=Thrippunithura%20Terminal")
+    body = r.json()
+    assert r.status_code == 200
+    assert body["station"] == "Thrippunithura Terminal"
+    assert body["routes"]
+    assert all(route["next"] and route["all"] for route in body["routes"])
