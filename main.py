@@ -44,6 +44,35 @@ BUS_STANDS = [
     {"name": "Thrippunithura Bus Stand", "lat": 9.9452, "lng": 76.3631, "routes": ["Hill Palace", "Vyttila", "Kakkanad"]},
 ]
 
+# Station-specific transfer points, used instead of inferring from a small citywide list.
+STATION_HUBS = {
+    "Aluva": ("Aluva KSRTC Bus Stand", 280, "Aluva Metro Auto Stand", 45, ["Airport", "Angamaly", "Ernakulam"]),
+    "Pulinchodu": ("Pulinchodu Bus Stop", 90, "Pulinchodu Auto Point", 30, ["Aluva", "Kalamassery", "Edappally"]),
+    "Companypady": ("Companypady Junction Bus Stop", 110, "Companypady Auto Stand", 35, ["Aluva", "Kalamassery", "Edappally"]),
+    "Ambattukavu": ("Ambattukavu Bus Stop", 85, "Ambattukavu Auto Point", 25, ["Aluva", "Kalamassery", "Edappally"]),
+    "Muttom": ("Muttom Metro Bus Stop", 100, "Muttom Auto Stand", 30, ["Aluva", "Kalamassery", "Edappally"]),
+    "Kalamassery": ("Kalamassery Municipal Bus Stop", 170, "Kalamassery Auto Stand", 40, ["Aluva", "Edappally", "Kakkanad"]),
+    "Cochin University": ("CUSAT Bus Stop", 75, "CUSAT Auto Stand", 25, ["Kakkanad", "Edappally", "Aluva"]),
+    "Pathadipalam": ("Pathadipalam Bus Stop", 65, "Pathadipalam Auto Point", 20, ["Kakkanad", "Edappally", "Aluva"]),
+    "Edapally": ("Edappally Junction Bus Stop", 140, "Edappally Metro Auto Stand", 45, ["Vyttila", "Kakkanad", "Aluva"]),
+    "Changampuzha Park": ("Changampuzha Park Bus Stop", 70, "Changampuzha Auto Point", 25, ["Aluva", "Kaloor", "Vyttila"]),
+    "Palarivattom": ("Palarivattom Junction Bus Stop", 105, "Palarivattom Auto Stand", 35, ["Kakkanad", "Kaloor", "Vyttila"]),
+    "JLN Stadium": ("JLN Stadium Bus Stop", 80, "Stadium Metro Auto Point", 25, ["Kakkanad", "Kaloor", "Vyttila"]),
+    "Kaloor": ("Kaloor Bus Stand", 160, "Kaloor Metro Auto Stand", 45, ["Fort Kochi", "MG Road", "Vyttila"]),
+    "Lissie": ("Lissie Junction Bus Stop", 90, "Lissie Auto Point", 25, ["MG Road", "Kaloor", "Vyttila"]),
+    "MG Road": ("MG Road Bus Stop", 110, "MG Road Metro Auto Stand", 35, ["Vyttila", "High Court", "Mattancherry"]),
+    "Maharaja's College": ("Maharaja's College Bus Stop", 75, "Maharaja's Auto Point", 20, ["MG Road", "Fort Kochi", "Vyttila"]),
+    "Ernakulam South": ("Ernakulam Junction Bus Stop", 150, "Ernakulam South Auto Stand", 45, ["Vyttila", "MG Road", "Fort Kochi"]),
+    "Kadavanthra": ("Kadavanthra Junction Bus Stop", 95, "Kadavanthra Auto Stand", 30, ["Vyttila", "MG Road", "Kakkanad"]),
+    "Elamkulam": ("Elamkulam Bus Stop", 80, "Elamkulam Metro Auto Point", 25, ["Vyttila", "Kadavanthra", "MG Road"]),
+    "Vyttila": ("Vyttila Mobility Hub", 160, "Vyttila Metro Auto Stand", 35, ["Kakkanad", "Fort Kochi", "Aluva"]),
+    "Thykoodam": ("Thykoodam Bus Stop", 85, "Thykoodam Auto Point", 25, ["Vyttila", "Tripunithura", "MG Road"]),
+    "Petta": ("Petta Junction Bus Stop", 100, "Petta Metro Auto Stand", 30, ["Vyttila", "Tripunithura", "Fort Kochi"]),
+    "SN Junction": ("SN Junction Bus Stop", 65, "SN Junction Auto Point", 20, ["Vyttila", "Tripunithura", "Kakkanad"]),
+    "Vadakkekotta": ("Vadakkekotta Bus Stop", 80, "Vadakkekotta Auto Stand", 25, ["Tripunithura", "Vyttila", "Hill Palace"]),
+    "Thrippunithura Terminal": ("Thrippunithura Bus Stand", 130, "Thrippunithura Terminal Auto Stand", 40, ["Hill Palace", "Vyttila", "Kakkanad"]),
+}
+
 # Local fallbacks keep destination confirmation usable during API failures.
 LANDMARKS = {
     "Fort Kochi": (9.9656, 76.2423), "Mattancherry": (9.9574, 76.2590), "Marine Drive": (9.9816, 76.2797),
@@ -189,13 +218,10 @@ def bus_stands(station: str = "Vyttila"):
     if station not in STATIONS:
         raise HTTPException(400, "Unknown metro station")
     now = datetime.now()
-    origin = STATIONS[station]
-    nearest = sorted(BUS_STANDS, key=lambda stand: haversine(origin, (stand["lat"], stand["lng"])))[:2]
-    stands = []
-    for stand in nearest:
-        distance_m = max(50, round(haversine(origin, (stand["lat"], stand["lng"])) * 1000))
-        stands.append({**stand, "walk_m": distance_m, "departures": [(now.replace(second=0, microsecond=0) + __import__('datetime').timedelta(minutes=m)).strftime("%I:%M %p") for m in (8,14,21)]})
-    return {"station": station, "stands": stands, "updated_at": now.isoformat(), "source": "Scheduled terminal board — not live vehicle tracking"}
+    bus_name, bus_walk, auto_name, auto_walk, routes = STATION_HUBS[station]
+    bus = {"name": bus_name, "walk_m": bus_walk, "routes": routes, "departures": [(now.replace(second=0, microsecond=0) + __import__('datetime').timedelta(minutes=m)).strftime("%I:%M %p") for m in (8,14,21)]}
+    auto = {"name": auto_name, "walk_m": auto_walk}
+    return {"station": station, "stands": [bus], "auto_stand": auto, "updated_at": now.isoformat(), "source": "Scheduled terminal board — not live vehicle tracking"}
 
 @app.post("/locate")
 async def locate(req: LocateRequest):
