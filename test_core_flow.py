@@ -103,3 +103,18 @@ def test_bus_timetable_for_station():
     assert body["station"] == "Thrippunithura Terminal"
     assert body["routes"]
     assert all(route["next"] and route["all"] for route in body["routes"])
+
+
+def test_group_reasoning_is_cached():
+    old_passengers, old_cache = main.PASSENGERS, main.GROUP_REASONING_CACHE.copy()
+    try:
+        main.GROUP_REASONING_CACHE.clear()
+        main.PASSENGERS = [passenger("a", 10.0000, 76.3200), passenger("b", 10.0020, 76.3200)]
+        first = main.build_groups()[0]["ai_reasoning"]
+        second = main.build_groups()[0]["ai_reasoning"]
+        assert first == second
+        assert len(main.GROUP_REASONING_CACHE) == 1
+    finally:
+        main.PASSENGERS = old_passengers
+        main.GROUP_REASONING_CACHE.clear()
+        main.GROUP_REASONING_CACHE.update(old_cache)

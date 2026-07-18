@@ -209,6 +209,7 @@ def seeded_passengers():
 
 PASSENGERS = seeded_passengers()
 POOL_RADIUS_KM = 1.0
+GROUP_REASONING_CACHE = {}
 
 def build_groups():
     eligible = [p for p in PASSENGERS if p.get("pool_opted_in", True) and road_distance(STATIONS.get(p["origin_station"], STATIONS["Vyttila"]), (p["lat"],p["lng"]), p["destination"]) < 18]
@@ -227,7 +228,9 @@ def build_groups():
         rec = recommendation(dist, p["budget_range"], p["destination"])
         mode = "cab" if rec["mode"] == "cab" else "auto"
         cost = round(fare_options(dist, p["destination"])[mode] / len(members))
-        reason, source = llm_group_reasoning(members, p["destination"], mode, cost, dist)
+        cache_key = (tuple(sorted(m["id"] for m in members)), p["destination"], mode, cost, dist)
+        reason, source = GROUP_REASONING_CACHE.get(cache_key) or llm_group_reasoning(members, p["destination"], mode, cost, dist)
+        GROUP_REASONING_CACHE[cache_key] = (reason, source)
         groups.append({"group_id": "G-"+p["id"][-4:].upper(), "members": [{"name":m["name"],"tag":m["meetup_tag"]} for m in members], "suggested_mode": mode, "cost_per_member": cost, "ai_reasoning": reason, "ai_reasoning_source": source, "meetup_point_at_station": station_meetup(p["origin_station"]), "women_only": p["preference"] == "women-only", "destination": p["destination"]})
     return groups
 
