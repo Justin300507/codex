@@ -159,13 +159,14 @@ def build_groups():
 def find_pool_offer(passenger, solo_fare):
     if passenger["distance_km"] >= 18 or passenger["preference"] == "quiet":
         return None
-    matches = [p for p in PASSENGERS if p["id"] != passenger["id"] and p.get("pool_opted_in", True) and p["preference"] == passenger["preference"] and min(p["max_walk_m"], passenger["max_walk_m"]) >= 150 and haversine((p["lat"],p["lng"]), (passenger["lat"],passenger["lng"])) <= .9]
+    matches = [p for p in PASSENGERS if p["id"] != passenger["id"] and p.get("pool_opted_in", True) and p["origin_station"] == passenger["origin_station"] and p["preference"] == passenger["preference"] and min(p["max_walk_m"], passenger["max_walk_m"]) >= 150 and haversine((p["lat"],p["lng"]), (passenger["lat"],passenger["lng"])) <= .9]
     if not matches:
         return None
     partner = matches[0]
     mode = "cab" if passenger["distance_km"] > 8 else "auto"
-    shared = round(fare_options(passenger["distance_km"])[mode] / 2)
-    return {"partner_name": partner["name"], "partner_tag": partner.get("meetup_tag") or "Metro gate", "mode": mode, "shared_fare": shared, "solo_fare": solo_fare, "saving": max(0, solo_fare-shared), "meetup": "Vyttila Metro main exit"}
+    riders = min(4, len(matches) + 1)
+    shared = round(fare_options(passenger["distance_km"])[mode] / riders)
+    return {"partner_name": partner["name"], "partner_tag": partner.get("meetup_tag") or "Metro gate", "mode": mode, "riders": riders, "shared_fare": shared, "solo_fare": solo_fare, "saving": max(0, solo_fare-shared), "meetup": "Vyttila Metro main exit"}
 
 @app.get("/")
 def home(): return FileResponse(ROOT / "static" / "index.html")
