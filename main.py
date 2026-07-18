@@ -36,8 +36,12 @@ STATIONS = {
 }
 
 BUS_STANDS = [
-    {"name": "Vyttila Mobility Hub", "walk_m": 160, "routes": ["Kakkanad", "Fort Kochi", "Aluva"]},
-    {"name": "Vyttila Junction", "walk_m": 240, "routes": ["Tripunithura", "MG Road", "Ernakulam"]},
+    {"name": "Vyttila Mobility Hub", "lat": 9.9668, "lng": 76.3204, "routes": ["Kakkanad", "Fort Kochi", "Aluva"]},
+    {"name": "Aluva KSRTC Bus Stand", "lat": 10.1085, "lng": 76.3510, "routes": ["Airport", "Angamaly", "Ernakulam"]},
+    {"name": "Edappally Junction Bus Stop", "lat": 10.0253, "lng": 76.3074, "routes": ["Vyttila", "Kakkanad", "Aluva"]},
+    {"name": "Kaloor Bus Stand", "lat": 9.9910, "lng": 76.3002, "routes": ["Fort Kochi", "MG Road", "Vyttila"]},
+    {"name": "MG Road Bus Stop", "lat": 9.9771, "lng": 76.2842, "routes": ["Vyttila", "High Court", "Mattancherry"]},
+    {"name": "Thrippunithura Bus Stand", "lat": 9.9452, "lng": 76.3631, "routes": ["Hill Palace", "Vyttila", "Kakkanad"]},
 ]
 
 # Local fallbacks keep destination confirmation usable during API failures.
@@ -181,9 +185,17 @@ def stations(): return [{"name": n, "lat": c[0], "lng": c[1]} for n,c in STATION
 async def weather(): return await seed_weather()
 
 @app.get("/bus-stands")
-def bus_stands():
+def bus_stands(station: str = "Vyttila"):
+    if station not in STATIONS:
+        raise HTTPException(400, "Unknown metro station")
     now = datetime.now()
-    return {"stands": [{**stand, "departures": [(now.replace(second=0, microsecond=0) + __import__('datetime').timedelta(minutes=m)).strftime("%I:%M %p") for m in (8,14,21)]} for stand in BUS_STANDS], "updated_at": now.isoformat(), "source": "Scheduled terminal board — not live vehicle tracking"}
+    origin = STATIONS[station]
+    nearest = sorted(BUS_STANDS, key=lambda stand: haversine(origin, (stand["lat"], stand["lng"])))[:2]
+    stands = []
+    for stand in nearest:
+        distance_m = max(50, round(haversine(origin, (stand["lat"], stand["lng"])) * 1000))
+        stands.append({**stand, "walk_m": distance_m, "departures": [(now.replace(second=0, microsecond=0) + __import__('datetime').timedelta(minutes=m)).strftime("%I:%M %p") for m in (8,14,21)]})
+    return {"station": station, "stands": stands, "updated_at": now.isoformat(), "source": "Scheduled terminal board — not live vehicle tracking"}
 
 @app.post("/locate")
 async def locate(req: LocateRequest):
